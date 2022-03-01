@@ -1,0 +1,56 @@
+# Run the following commands in order:
+#
+# docker build --tag chip_placement_rl:core -f tools/docker/ubuntu_chip_placement_rl tools/docker/
+#
+# Smoke test the docker
+# docker run -it --rm -v $(pwd):/workspace --workdir /workspace chip_placement_rl:core bash
+# python3 -m chip_placement_rl.environment.environment_test
+#
+# For GPUs. devel version is needed to support xla.
+# docker build --build-arg base_image=nvidia/cuda:11.4.2-cudnn8-devel-ubuntu20.04 \
+#   --tag chip_placement_rl:core -f tools/docker/ubuntu_chip_placement_rl tools/docker/
+ARG base_image="ubuntu:20.04"
+
+FROM $base_image
+
+LABEL maintainer="tobyboyd@google.com"
+
+# Supports setting up a single version of python.
+ARG python_version="python3"
+ARG tf_agents_version="tf-agents[reverb]"
+ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
+
+# Stops tzdata from asking about timezones and blocking install on user input.
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Los_Angeles
+
+# Installs basics including add-apt.
+RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
+        software-properties-common \
+        curl \
+        less
+
+# Adds repository to pull versions of python from.
+RUN add-apt-repository ppa:deadsnakes/ppa
+
+# Installs various versions of python and then cleans up apt.
+RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
+        $python_version-dev \
+        $python_version-distutils \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Downloads the placement cost utility binary nto /usr/local/bin.
+RUN curl https://storage.googleapis.com/rl-infra-public/circuit-training/placement_cost/plc_wrapper_main \
+     -o  /usr/local/bin/plc_wrapper_main
+
+RUN chmod 555 /usr/local/bin/plc_wrapper_main
+
+RUN curl -O https://bootstrap.pypa.io/get-pip.py
+
+RUN $python_version get-pip.py
+RUN $python_version -mpip --no-cache-dir install $tf_agents_version
+
+
+CMD ["/bin/bash"]
